@@ -244,12 +244,11 @@ extern "C" {
         spw->m_data->m_initialStep = step_size;             //初始化积分步长
 
         MoReal* D = spw->m_data->m_D;                       //D=w(i+1)-y(i+1)
-        MoReal Q = spw->m_data->m_Q;
-        MoReal h = spw->m_data->m_initialStep;
-        
+        MoReal h = spw->m_data->m_h;
+        h = step_size;
+       
         MoReal* preY = spw->m_data->m_preY;                 //上个y
         MoReal* curY = spw->m_data->m_curY;                //当前y
-
         MoReal* preYp = spw->m_data->m_preYp;               //上个y'
         MoReal* curYp = spw->m_data->m_curYp;               //当前y’
 
@@ -267,8 +266,7 @@ extern "C" {
         MoReal* K6y = spw->m_data->k6y;
         
         MoBoolean Flag = moTrue;
-        while (Flag)
-        {
+
             for (index = 0; index < nState; ++index)
             {
                 preY[index] = yret[index];
@@ -297,31 +295,17 @@ extern "C" {
 
                 D[index] = K1[index] / 360 - 128 / 4275 * K3[index] - 2197 / 75240 * K4[index]
                     + K5[index] / 50 + 2 / 55 * K6[index];
-
-                ypret[index] = D[index];
-
             }
-            //MoReal sum = 0;
-            //MoReal normD = 0;
-
-            //for (index = 0; index < nState; ++index)
-            //{
-            //    sum = sum + fabs(D[index]) *fabs( D[index]);
-            //}   
-            //normD = sqrt(sum);
-            //MoReal R = normD / h; 
-            MoReal smallestD = D[0];
+            MoReal sum = 0;
+            MoReal normD = 0;
             for (index = 0; index < nState; ++index)
             {
-                if (fabs(D[index])<fabs(smallestD))
-                {
-                    smallestD =fabs(D[index]);
-                }
-            }
-
-            MoReal R = smallestD / h;
-
-            if (R < spw->m_opt.m_absoluteTolerance[0])            //误差容限满足精度
+                sum = sum + fabs(D[index]) *fabs( D[index]);
+            }   
+            normD = sqrtl(sum);              //向量的二范数
+            MoReal R = normD / h; 
+            
+            if (fabs(D[0]) < spw->m_opt.m_absoluteTolerance[0])            //误差容限满足精度
             {
                 *tret += h;
                 for (index = 0; index < nState; ++index)
@@ -336,14 +320,14 @@ extern "C" {
 
                     ypret[index] = preYp[index];
                     curYp[index] = ypret[index];
-
+                    
                 }
                 
                 Flag = moFalse;
             }
-            
-                Q = 0.84*pow(spw->m_opt.m_absoluteTolerance[0] / R, 1 / 4);
-                if (Q <= 0.1)
+
+            MoReal Q = pow(spw->m_opt.m_absoluteTolerance[0] / R, 1 / 4);
+                if (Q <= 0.2)
                 {
                     h = 0.2 * h;
                 }
@@ -379,12 +363,13 @@ extern "C" {
                     return MWS_IVP_FAIL;
                 }
             
-
-        }
-
-            
-                /* 更新当前积分时间 */
-      // *tret += h;                //积分时间增加一步。外部进行循环                 
+             step_size = h;
+       /* 更新当前积分时间 */
+             if (Flag)      //当flag=true的时候，不更新
+             {
+                 *tret = spw->m_data->m_curTime;
+             }
+                        //积分时间增加一步。外部进行循环
        return MWS_IVP_SUCCESS;  //返回状态，取MwsIVPStatus的值
     }
 
