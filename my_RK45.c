@@ -133,7 +133,7 @@ extern "C" {
 
             spw->m_data->m_curTime = 0;
             spw->m_data->m_initialStep = spw->m_opt.m_stopTime/1000;          //默认初始积分步长default
-            spw->m_data->m_Q = 0;
+            //spw->m_data->m_Q = 0;
             spw->m_data->m_h = 0;
 
             spw->m_opt.m_maxStepSize = spw->m_opt.m_stopTime;
@@ -232,7 +232,7 @@ extern "C" {
     /// <param name="reserve">保留参数，暂不使用</param>
     /// <returns></returns>
     MwsInteger myRK45Solve(MwsIVPSolverObj solver, MwsIVPObj ivp, MwsReal step_size, MwsReal t,
-        MwsReal tout, MwsReal* tret, MwsReal* yret, MwsReal* ypret, void* reserve)
+        MwsReal tout, MwsReal* tret, MwsReal* yret, MwsReal* ypret, MwsReal reserve)
     {
         MyRK45* sw = (MyRK45*)solver;
         MyRK45Problem* spw = (MyRK45Problem*)ivp;
@@ -245,8 +245,15 @@ extern "C" {
 
         MoReal* D = spw->m_data->m_D;                       //D=w(i+1)-y(i+1)
         MoReal h = spw->m_data->m_h;
-        h = step_size;
-       
+        if (h==0)
+        {
+            h = spw->m_data->m_initialStep;
+        }
+        else
+        {
+            h = reserve;
+        }
+
         MoReal* preY = spw->m_data->m_preY;                 //上个y
         MoReal* curY = spw->m_data->m_curY;                //当前y
         MoReal* preYp = spw->m_data->m_preYp;               //上个y'
@@ -266,7 +273,7 @@ extern "C" {
         MoReal* K6y = spw->m_data->k6y;
         
         MoBoolean Flag = moTrue;
-
+        
             for (index = 0; index < nState; ++index)
             {
                 preY[index] = yret[index];
@@ -296,16 +303,18 @@ extern "C" {
                 D[index] = K1[index] / 360 - 128 / 4275 * K3[index] - 2197 / 75240 * K4[index]
                     + K5[index] / 50 + 2 / 55 * K6[index];
             }
+
             MoReal sum = 0;
             MoReal normD = 0;
             for (index = 0; index < nState; ++index)
             {
-                sum = sum + fabs(D[index]) *fabs( D[index]);
-            }   
+                sum = sum + fabs(D[index]) * fabs(D[index]);
+            }
             normD = sqrtl(sum);              //向量的二范数
-            MoReal R = normD / h; 
-            
-            if (fabs(D[0]) < spw->m_opt.m_absoluteTolerance[0])            //误差容限满足精度
+            MoReal R = normD / h;
+
+            /*现在问题是normD为什么那么大。。。。。，精度只有设成大于0.1的时候才可以满足*/
+            if (normD < spw->m_opt.m_absoluteTolerance[0])            //满足精度
             {
                 *tret += h;
                 for (index = 0; index < nState; ++index)
@@ -313,57 +322,56 @@ extern "C" {
                     //improved RK45
                     yret[index] = preY[index] + 25 / 216 * K1[index] + 1408 / 2565 * K3[index]
                         + 2197 / 4104 * K4[index] - 1 / 5 * K5[index] + D[index];
-                
+
                     curY[index] = yret[index];
 
                     spw->m_callback.m_rshFunction(spw->m_userData, spw->m_data->m_curTime + spw->m_data->m_initialStep, curY, preYp);
 
                     ypret[index] = preYp[index];
                     curYp[index] = ypret[index];
-                    
+
                 }
-                
+
                 Flag = moFalse;
             }
 
             MoReal Q = pow(spw->m_opt.m_absoluteTolerance[0] / R, 1 / 4);
-                if (Q <= 0.2)
-                {
-                    h = 0.2 * h;
-                }
-                else if (Q >= 4)
-                {
-                    h = 4 * h;
-                }
-                else
-                {
-                    h = h * Q;
-                }
+            if (Q <= 0.2)
+            {
+                h = 0.2 * h;
+            }
+            else if (Q >= 4)
+            {
+                h = 4 * h;
+            }
+            else
+            {
+                h = h * Q;
+            }
 
-                if (h > spw->m_opt.m_maxStepSize)      //步长大于设定的最大步长，则h=hmax
-                {
-                    h = spw->m_opt.m_maxStepSize;
-                }
+            if (h > spw->m_opt.m_maxStepSize)      //步长大于设定的最大步长，则h=hmax
+            {
+                h = spw->m_opt.m_maxStepSize;
+            }
 
-                if (spw->m_data->m_curTime >= spw->m_opt.m_stopTime)       //当前仿真时间大于设定的停止仿真时间
-                {
-                    *tret = tout;
-                    Flag = moFalse;
+            if (spw->m_data->m_curTime >= spw->m_opt.m_stopTime)       //当前仿真时间大于设定的停止仿真时间
+            {
+                *tret = tout;
+                Flag = moFalse;
 
-                   // return MWS_IVP_TSTOP_RETURN;        //到达终止时间而返回
-                }
-                else if (spw->m_data->m_curTime + h > spw->m_opt.m_stopTime)     //ti+qh>L,即超出边界，则h=L-ti
-                {
-                    h = spw->m_opt.m_stopTime - spw->m_data->m_curTime;
-                }
-                if (h < 0)
-                {
-                    Flag = moFalse;
+                // return MWS_IVP_TSTOP_RETURN;        //到达终止时间而返回
+            }
+            else if (spw->m_data->m_curTime + h > spw->m_opt.m_stopTime)     //ti+qh>L,即超出边界，则h=L-ti
+            {
+                h = spw->m_opt.m_stopTime - spw->m_data->m_curTime;
+            }
+            if (h < 0)
+            {
+                Flag = moFalse;
 
-                    return MWS_IVP_FAIL;
-                }
-            
-             step_size = h;
+                return MWS_IVP_FAIL;
+            }
+            reserve = h;
        /* 更新当前积分时间 */
              if (Flag)      //当flag=true的时候，不更新
              {
